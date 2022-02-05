@@ -78,6 +78,16 @@ set(hpp_content [==[
 #include <system_error>
 #include <type_traits>
 
+#if defined(__clang__)
+#define GSL_SUPPRESS(x) [[gsl::suppress("x")]]
+#else
+#if defined(_MSC_VER)
+#define GSL_SUPPRESS(x) [[gsl::suppress(x)]]
+#else
+#define GSL_SUPPRESS(x)
+#endif // _MSC_VER
+#endif // __clang__
+
 #if !(defined(__EXCEPTIONS) || defined(__cpp_exceptions) || defined(_CPPUNWIND) || defined(CMRC_NO_EXCEPTIONS))
 #define CMRC_NO_EXCEPTIONS 1
 #endif
@@ -106,6 +116,7 @@ public:
     iterator cbegin() const noexcept { return _begin; }
     iterator end() const noexcept { return _end; }
     iterator cend() const noexcept { return _end; }
+    GSL_SUPPRESS(type.1) // NO-FORMAT: attribute
     std::size_t size() const { return static_cast<std::size_t>(std::distance(begin(), end())); }
 
     file() = default;
@@ -127,10 +138,12 @@ class file_or_directory {
     bool _is_file = true;
 
 public:
-    explicit file_or_directory(file_data& f) {
+    GSL_SUPPRESS(type.7) // NO-FORMAT: attribute
+    explicit file_or_directory(file_data& f) noexcept {
         _data.file_data = &f;
     }
-    explicit file_or_directory(directory& d) {
+    GSL_SUPPRESS(type.7) // NO-FORMAT: attribute
+    explicit file_or_directory(directory& d) noexcept {
         _data.directory = &d;
         _is_file = false;
     }
@@ -140,10 +153,12 @@ public:
     bool is_directory() const noexcept {
         return !is_file();
     }
+    GSL_SUPPRESS(type.7) // NO-FORMAT: attribute
     const directory& as_directory() const noexcept {
         assert(!is_file());
         return *_data.directory;
     }
+    GSL_SUPPRESS(type.7) // NO-FORMAT: attribute
     const file_data& as_file() const noexcept {
         assert(is_file());
         return *_data.file_data;
@@ -155,11 +170,11 @@ public:
     const char* begin_ptr;
     const char* end_ptr;
     file_data(const file_data&) = delete;
-    file_data(const char* b, const char* e) : begin_ptr(b), end_ptr(e) {}
+    file_data(const char* b, const char* e) noexcept : begin_ptr(b), end_ptr(e) {}
 };
 
 inline std::pair<std::string, std::string> split_path(const std::string& path) {
-    auto first_sep = path.find("/");
+    const auto first_sep = path.find("/");
     if (first_sep == path.npos) {
         return std::make_pair(path, "");
     } else {
@@ -181,7 +196,7 @@ class directory {
 
 public:
 
-    directory() = default;
+    directory() noexcept = default;
     directory(const directory&) = delete;
 
     created_subdirectory add_subdir(std::string name) & {
@@ -228,7 +243,7 @@ public:
         using iterator_category = std::input_iterator_tag;
 
         iterator() = default;
-        explicit iterator(base_iterator iter, base_iterator end) : _base_iter(iter), _end_iter(end) {}
+        explicit iterator(base_iterator iter, base_iterator end) noexcept : _base_iter(iter), _end_iter(end) {}
 
         iterator begin() const noexcept {
             return *this;
@@ -238,7 +253,7 @@ public:
             return iterator(_end_iter, _end_iter);
         }
 
-        inline value_type operator*() const noexcept;
+        inline value_type operator*() const;
 
         bool operator==(const iterator& rhs) const noexcept {
             return _base_iter == rhs._base_iter;
@@ -271,7 +286,7 @@ public:
     }
 };
 
-inline std::string normalize_path(std::string path) {
+inline std::string normalize_path(std::string path) noexcept {
     while (path.find("/") == 0) {
         path.erase(path.begin());
     }
@@ -280,7 +295,7 @@ inline std::string normalize_path(std::string path) {
     }
     auto off = path.npos;
     while ((off = path.find("//")) != path.npos) {
-        path.erase(path.begin() + static_cast<std::string::difference_type>(off));
+        path.erase(path.begin() + off);
     }
     return path;
 }
@@ -300,23 +315,23 @@ public:
         , _item(&item)
     {}
 
-    const std::string& filename() const & {
+    const std::string& filename() const & noexcept {
         return _fname;
     }
-    std::string filename() const && {
+    std::string filename() && noexcept {
         return std::move(_fname);
     }
 
-    bool is_file() const {
+    bool is_file() const noexcept {
         return _item->is_file();
     }
 
-    bool is_directory() const {
+    bool is_directory() const noexcept {
         return _item->is_directory();
     }
 };
 
-directory_entry detail::directory::iterator::operator*() const noexcept {
+directory_entry detail::directory::iterator::operator*() const {
     assert(begin() != end());
     return directory_entry(_base_iter->first, _base_iter->second);
 }
@@ -326,18 +341,22 @@ using directory_iterator = detail::directory::iterator;
 class embedded_filesystem {
     // Never-null:
     const cmrc::detail::index_type* _index;
-    const detail::file_or_directory* _get(std::string path) const {
-        path = detail::normalize_path(path);
-        auto found = _index->find(path);
-        if (found == _index->end()) {
+    const detail::file_or_directory* _get(const std::string& path) const noexcept {
+        try {
+            auto found = _index->find(detail::normalize_path(path));
+            if (found == _index->end()) {
+                return nullptr;
+            } else {
+                return found->second;
+            }
+        }
+        catch (const std::exception&) {
             return nullptr;
-        } else {
-            return found->second;
         }
     }
 
 public:
-    explicit embedded_filesystem(const detail::index_type& index)
+    explicit embedded_filesystem(const detail::index_type& index) noexcept
         : _index(&index)
     {}
 
